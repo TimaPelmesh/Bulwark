@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+    <rect width="100%" height="100%" fill="#2c3e50"/>
+    <rect x="10" y="10" width="780" height="40" fill="#34495e" rx="5"/>
+    <text x="30" y="35" font-family="Arial" font-size="18" fill="#ecf0f1">Сетевой и системный диспетчер задач</text>
+    
+    <!-- Tabs -->
+    <rect x="10" y="60" width="780" height="30" fill="#3498db" rx="5"/>
+    <text x="30" y="80" font-family="Arial" font-size="14" fill="#fff">Система</text>
+    <text x="120" y="80" font-family="Arial" font-size="14" fill="#fff">Процессор</text>
+    <text x="220" y="80" font-family="Arial" font-size="14" fill="#fff">Память</text>
+    <text x="320" y="80" font-family="Arial" font-size="14" fill="#fff">Сетевые интерфейсы</text>
+    <text x="490" y="80" font-family="Arial" font-size="14" fill="#fff">ARP таблица</text>
+    <text x="620" y="80" font-family="Arial" font-size="14" fill="#fff">Топология сети</text>
+    
+    <!-- CPU Tab Content -->
+    <rect x="10" y="100" width="780" height="490" fill="#34495e" rx="5"/>
+    
+    <!-- CPU Usage -->
+    <rect x="30" y="130" width="350" height="220" fill="#2c3e50" rx="5"/>
+    <text x="50" y="160" font-family="Arial" font-size="16" fill="#ecf0f1">Загрузка процессора</text>
+    
+    <!-- CPU Graph -->
+    <polyline points="50,300 100,280 150,290 200,250 250,270 300,230 350,245" stroke="#3498db" stroke-width="3" fill="none"/>
+    <polyline points="50,300 100,280 150,290 200,250 250,270 300,230 350,245" stroke="#3498db" stroke-width="3" fill="none" transform="translate(0, -80)"/>
+    
+    <!-- RAM Usage -->
+    <rect x="30" y="370" width="350" height="200" fill="#2c3e50" rx="5"/>
+    <text x="50" y="400" font-family="Arial" font-size="16" fill="#ecf0f1">Использование памяти</text>
+    
+    <!-- RAM Bar -->
+    <rect x="50" y="430" width="300" height="30" fill="#34495e" rx="5"/>
+    <rect x="50" y="430" width="210" height="30" fill="#3498db" rx="5"/>
+    <text x="180" y="450" font-family="Arial" font-size="14" fill="#fff">70%</text>
+    
+    <!-- Swap Bar -->
+    <rect x="50" y="480" width="300" height="30" fill="#34495e" rx="5"/>
+    <rect x="50" y="480" width="120" height="30" fill="#e74c3c" rx="5"/>
+    <text x="180" y="500" font-family="Arial" font-size="14" fill="#fff">40%</text>
+    
+    <!-- Right Side - Network Info -->
+    <rect x="410" y="130" width="350" height="440" fill="#2c3e50" rx="5"/>
+    <text x="430" y="160" font-family="Arial" font-size="16" fill="#ecf0f1">Сетевые интерфейсы</text>
+    
+    <!-- Network Interface 1 -->
+    <rect x="430" y="180" width="310" height="80" fill="#34495e" rx="5"/>
+    <text x="450" y="210" font-family="Arial" font-size="14" fill="#3498db">eth0</text>
+    <text x="450" y="230" font-family="Arial" font-size="12" fill="#ecf0f1">IP: 192.168.1.5</text>
+    <text x="450" y="250" font-family="Arial" font-size="12" fill="#ecf0f1">MAC: 00:1A:2B:3C:4D:5E</text>
+    
+    <!-- Network Interface 2 -->
+    <rect x="430" y="280" width="310" height="80" fill="#34495e" rx="5"/>
+    <text x="450" y="310" font-family="Arial" font-size="14" fill="#3498db">wlan0</text>
+    <text x="450" y="330" font-family="Arial" font-size="12" fill="#ecf0f1">IP: 192.168.1.6</text>
+    <text x="450" y="350" font-family="Arial" font-size="12" fill="#ecf0f1">MAC: 01:2C:3D:4E:5F:6G</text>
+    
+    <!-- Network Traffic Graph -->
+    <text x="430" y="400" font-family="Arial" font-size="16" fill="#ecf0f1">Сетевой трафик</text>
+    <polyline points="430,500 470,490 510,510 550,480 590,520 630,470 670,500 710,450" stroke="#27ae60" stroke-width="3" fill="none"/>
+    <polyline points="430,500 470,480 510,490 550,460 590,500 630,470 670,510 710,490" stroke="#e74c3c" stroke-width="3" fill="none"/>
+    <text x="640" y="440" font-family="Arial" font-size="12" fill="#27ae60">TX</text>
+    <text x="640" y="460" font-family="Arial" font-size="12" fill="#e74c3c">RX</text>
+</svg> 
