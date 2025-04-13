@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulwark</title>
+    <link rel="icon" href="icon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="icon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">
+                <img src="icon.ico" alt="Icon" class="logo-icon">
+                <h1>Bulwark</h1>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="#features">Функции</a></li>
+                    <li><a href="#structure">Структура</a></li>
+                    <li><a href="#requirements">Требования</a></li>
+                    <li><a href="#installation">Установка</a></li>
+                    <li><a href="#download" class="download-btn">Скачать</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h2>Мониторинг системы и сети в одном приложении</h2>
+                <p>Приложение для мониторинга системных ресурсов компьютера и сетевой активности с графическим интерфейсом на PyQt5</p>
+                <a href="#download" class="cta-button">Скачать приложение</a>
+            </div>
+            <div class="hero-image">
+                <img src="images/app-preview.svg" alt="Предпросмотр приложения" id="preview-placeholder">
+            </div>
+        </div>
+    </section>
+
+    <section id="features" class="features">
+        <div class="container">
+            <h2>Функциональность</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-microchip"></i></div>
+                    <h3>Системный мониторинг</h3>
+                    <ul>
+                        <li>Информация о системе (ОС, процессор, ядра)</li>
+                        <li>Мониторинг загрузки процессора</li>
+                        <li>Мониторинг использования оперативной памяти</li>
+                    </ul>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-network-wired"></i></div>
+                    <h3>Сетевой мониторинг</h3>
+                    <ul>
+                        <li>Информация о сетевых интерфейсах</li>
+                        <li>Информация о сетевом шлюзе</li>
+                        <li>Статистика по сетевому трафику</li>
+                        <li>ARP таблица (кэш адресов)</li>
+                        <li>Визуализация топологии сети</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="structure" class="structure">
+        <div class="container">
+            <h2>Структура проекта</h2>
+            <pre class="code-block">
+.
+├── main.py              # Основной файл для запуска приложения
+├── ui.py                # Модуль с основным пользовательским интерфейсом
+├── system_monitor.py    # Модуль для мониторинга системных ресурсов
+├── network_monitor.py   # Модуль для мониторинга сетевой активности
+├── icon.ico             # Иконка приложения
+└── README.md            # Этот файл с документацией
+            </pre>
+        </div>
+    </section>
+
+    <section id="requirements" class="requirements">
+        <div class="container">
+            <h2>Требования</h2>
+            <p>Для запуска приложения необходимы следующие компоненты:</p>
+            <ul class="req-list">
+                <li>Python 3.6 или выше</li>
+                <li>PyQt5</li>
+                <li>psutil</li>
+                <li>netifaces</li>
+                <li>scapy</li>
+                <li>networkx</li>
+                <li>matplotlib</li>
+                <li>GPUtil (для мониторинга GPU)</li>
+            </ul>
+        </div>
+    </section>
+
+    <section id="installation" class="installation">
+        <div class="container">
+            <h2>Установка и запуск</h2>
+            <div class="install-steps">
+                <div class="step">
+                    <h3>1. Установка зависимостей</h3>
+                    <pre class="code-block">pip install PyQt5 psutil netifaces scapy networkx matplotlib GPUtil</pre>
+                </div>
+                <div class="step">
+                    <h3>2. Запуск приложения</h3>
+                    <pre class="code-block">python main.py</pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="download" class="download">
+        <div class="container">
+            <h2>Скачать приложение</h2>
+            <div class="download-options">
+                <div class="download-card">
+                    <div class="download-icon"><i class="fab fa-windows"></i></div>
+                    <h3>Windows 10, 11</h3>
+                    <p>Версия 1.0.0</p>
+                    <a href="downloads/system-network-monitor-windows.exe" class="download-link" download>Скачать для Windows</a>
+                </div>
+                <div class="download-card">
+                    <div class="download-icon"><i class="fab fa-github"></i></div>
+                    <h3>Исходный код</h3>
+                    <p>GitHub репозиторий</p>
+                    <a href="https://github.com/TimaPelmesh/Bulwark" class="download-link" target="_blank">Перейти в репозиторий</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="usage">
+        <div class="container">
+            <h2>Использование</h2>
+            <div class="usage-grid">
+                <div class="usage-card">
+                    <h3>Системный мониторинг</h3>
+                    <ol>
+                        <li><strong>Вкладка "Система"</strong> - отображает основную информацию о системе.</li>
+                        <li><strong>Вкладка "Процессор"</strong> - показывает загрузку ЦП в реальном времени.</li>
+                        <li><strong>Вкладка "Память"</strong> - отображает информацию о RAM и дисках.</li>
+                    </ol>
+                </div>
+                <div class="usage-card">
+                    <h3>Сетевой мониторинг</h3>
+                    <ol>
+                        <li><strong>Вкладка "Сетевые интерфейсы"</strong> - показывает информацию о сетевых адаптерах, их настройках и статистике трафика.</li>
+                        <li><strong>Вкладка "ARP таблица"</strong> - отображает таблицу ARP-записей (IP-адреса и соответствующие им MAC-адреса).</li>
+                        <li><strong>Вкладка "Топология сети"</strong> - визуально отображает топологию локальной сети с обнаруженными устройствами.</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="principles">
+        <div class="container">
+            <h2>Принципы ООП в проекте</h2>
+            <div class="principles-list">
+                <div class="principle">
+                    <h3>Инкапсуляция</h3>
+                    <p>Данные и методы объединены в классы, скрывая детали реализации.</p>
+                </div>
+                <div class="principle">
+                    <h3>Наследование</h3>
+                    <p>Классы виджетов наследуются от базовых классов PyQt (QWidget, QTabWidget).</p>
+                </div>
+                <div class="principle">
+                    <h3>Полиморфизм</h3>
+                    <p>Одни и те же методы (например, closeEvent) имеют разную реализацию в разных классах.</p>
+                </div>
+                <div class="principle">
+                    <h3>Абстракция</h3>
+                    <p>Классы представляют абстрактные концепции, такие как "Сетевой мониторинг" или "Системный мониторинг".</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="notes">
+        <div class="container">
+            <h2>Примечания</h2>
+            <div class="notes-list">
+                <div class="note">
+                    <i class="fas fa-info-circle"></i>
+                    <p>Приложение разработано для работы в операционной системе Windows.</p>
+                </div>
+                <div class="note">
+                    <i class="fas fa-shield-alt"></i>
+                    <p>Для некоторых функций (например, сканирование сети) могут потребоваться права администратора.</p>
+                </div>
+                <div class="note">
+                    <i class="fas fa-gpu"></i>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="development">
+        <div class="container">
+            <h2>Разработка и расширение</h2>
+            <p>Для добавления новых функций рекомендуется следовать существующей архитектуре приложения:</p>
+            <ol>
+                <li>Для новых параметров мониторинга - добавить методы в класс SystemMonitor или NetworkMonitor.</li>
+                <li>Для новых вкладок - создать новый класс, наследующийся от QWidget, и добавить его в соответствующий контейнер.</li>
+            </ol>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2023 Сетевой и системный диспетчер задач</p>
+            <div class="social-links">
+                <a href="#"><i class="fab fa-github"></i></a>
+                <a href="#"><i class="fab fa-linkedin"></i></a>
+                <a href="#"><i class="fab fa-twitter"></i></a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html> 
