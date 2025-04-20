@@ -1,0 +1,38 @@
+# UTF-8
+#
+# Информация о версии для включения в исполняемый файл
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    # Номер версии в формате (1, 2, 3, 4)
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    # Маска для файловой информации
+    mask=0x3f,
+    # Флаги для файла
+    flags=0x0,
+    # Тип ОС для файла
+    OS=0x40004,
+    # Тип файла
+    fileType=0x1,
+    # Подтип файла
+    subtype=0x0,
+    # Дата создания
+    date=(0, 0)
+    ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'040904B0',  # Код языка (американский английский) и кодировка
+        [StringStruct(u'CompanyName', u'2АСС9-13'),
+        StringStruct(u'FileDescription', u'Bulwark - Система мониторинга'),
+        StringStruct(u'FileVersion', u'1.0.0'),
+        StringStruct(u'InternalName', u'Bulwark'),
+        StringStruct(u'LegalCopyright', u'© 2025 Группа 2АСС9-13'),
+        StringStruct(u'OriginalFilename', u'Bulwark.exe'),
+        StringStruct(u'ProductName', u'Bulwark'),
+        StringStruct(u'ProductVersion', u'1.0.0')])
+      ]), 
+    VarFileInfo([VarStruct(u'Translation', [0x0409, 1200])])
+  ]
+) 
