@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLab
                            QToolTip, QCheckBox, QLineEdit)  # Добавляем QCheckBox и QLineEdit
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QRectF, QPointF, QRect, QSize, QEvent
 from PyQt5.QtGui import (QPainter, QColor, QPen, QBrush, QFont, QPixmap, QPainterPath, 
-                       QPolygonF, QLinearGradient, QRadialGradient)
+                       QPolygonF, QLinearGradient, QRadialGradient, QIcon)  # Добавляем QIcon
 import logging
 import concurrent.futures
 
@@ -1167,7 +1167,7 @@ class NetworkMonitor:
         # По умолчанию считаем устройство компьютером
         return "Компьютер"
 
-    def _check_common_ports(self, ip, timeout=0.1):
+    def _check_common_ports(self, ip, timeout=0.5):
         """
         Проверяет наличие открытых портов на устройстве.
         Это альтернативный метод обнаружения устройств, когда ICMP блокируется.
@@ -1179,7 +1179,9 @@ class NetworkMonitor:
         Returns:
             bool: True если хотя бы один порт открыт, False в противном случае
         """
-        common_ports = [80, 443, 22, 23, 21]  # HTTP, HTTPS, SSH, Telnet, FTP
+        # Добавляем порты, часто используемые мобильными устройствами
+        # HTTP, HTTPS, SSH, Telnet, FTP, mDNS, DLNA/UPnP, SNMP, AirPlay, Chromecast
+        common_ports = [80, 443, 22, 23, 21, 5353, 1900, 161, 7000, 8008, 8009, 32768, 32769, 49152, 62078]
         
         for port in common_ports:
             try:
@@ -1197,7 +1199,7 @@ class NetworkMonitor:
     def _scan_network_alternative(self, subnet=None, max_devices=20):
         """
         Альтернативный метод сканирования сети, когда ICMP блокируется.
-        Использует комбинацию методов обнаружения.
+        Использует комбинацию методов обнаружения и проверяет актуальность устройств.
         
         Args:
             subnet (str): Подсеть для сканирования (если None, используется текущая подсеть)
@@ -1207,6 +1209,11 @@ class NetworkMonitor:
             dict: Словарь обнаруженных устройств
         """
         discovered_devices = {}
+        current_time = time.time()
+        
+        # Проверяем, существует ли словарь для хранения истории устройств
+        if not hasattr(self, '_devices_history'):
+            self._devices_history = {}
         
         # 1. Сначала собираем устройства из ARP-таблицы
         arp_entries = self.get_arp_table()
@@ -1215,12 +1222,48 @@ class NetworkMonitor:
             if ip and not self.is_special_ip(ip):
                 mac = entry.get("MAC", "Не определен")
                 if not self.is_special_mac(mac):
-                    discovered_devices[ip] = {
-                        "IP": ip,
-                        "MAC": mac,
-                        "Тип": "Неизвестно",  # Тип будет определен позже
-                        "Метод": "ARP"
-                    }
+                    # Проверяем, активно ли устройство в данный момент
+                    is_active = False
+                    ping_success = self._ping_ip(ip)
+                    port_success = self._check_common_ports(ip)
+                    
+                    # Устройство считается активным, если оно отвечает на ping или на проверку портов
+                    if ping_success or port_success:
+                        is_active = True
+                        
+                    # Сохраняем статус и время последней активности
+                    if ip in self._devices_history:
+                        # Обновляем существующую запись
+                        if is_active:
+                            self._devices_history[ip]["last_active"] = current_time
+                            self._devices_history[ip]["active"] = True
+                        else:
+                            # Если устройство не активно сейчас, но было активно недавно (в течение 3 минут),
+                            # оставляем его в списке, но помечаем как неактивное
+                            if current_time - self._devices_history[ip]["last_active"] < 180:  # 3 минуты
+                                is_active = True  # Считаем его всё ещё присутствующим, но неактивным
+                                self._devices_history[ip]["active"] = False
+                            else:
+                                # Если устройство было неактивно больше 3 минут, удаляем его
+                                continue
+                    else:
+                        # Создаем новую запись в истории
+                        self._devices_history[ip] = {
+                            "last_active": current_time if is_active else 0,
+                            "active": is_active,
+                            "first_seen": current_time
+                        }
+                    
+                    # Если устройство активно или было активно недавно, добавляем его в список
+                    if is_active:
+                        active_status = "Активно" if self._devices_history[ip]["active"] else "Неактивно"
+                        discovered_devices[ip] = {
+                            "IP": ip,
+                            "MAC": mac,
+                            "Тип": "Неизвестно",  # Тип будет определен позже
+                            "Метод": "ARP",
+                            "Статус": active_status
+                        }
         
         # 2. Получаем текущую подсеть
         if not subnet:
@@ -1236,28 +1279,35 @@ class NetworkMonitor:
         
         # 3. Пытаемся просканировать общие порты для устройств в подсети
         # Сначала пробуем наиболее вероятные адреса
-        common_last_octets = [1, 2, 3, 254, 100, 101, 10, 20, 30, 40, 50, 60, 70, 80, 90]
+        common_last_octets = [1, 2, 3, 254, 100, 101, 10, 20, 30, 40, 50, 60, 70, 80, 90, 110, 120, 130, 140, 150]
         
         for last_octet in common_last_octets:
             ip = f"{subnet}.{last_octet}"
             if ip not in discovered_devices and not self.is_special_ip(ip):
-                # Проверяем, отвечает ли устройство по ICMP
-                if self._ping_ip(ip):
+                ping_success = self._ping_ip(ip)
+                port_success = self._check_common_ports(ip)
+                
+                # Устройство считается активным, если оно отвечает на ping или на проверку портов
+                if ping_success or port_success:
+                    method = "ICMP" if ping_success else "PORT"
+                    
+                    # Сохраняем статус и время последней активности
+                    if ip in self._devices_history:
+                        self._devices_history[ip]["last_active"] = current_time
+                        self._devices_history[ip]["active"] = True
+                    else:
+                        self._devices_history[ip] = {
+                            "last_active": current_time,
+                            "active": True,
+                            "first_seen": current_time
+                        }
+                    
                     discovered_devices[ip] = {
                         "IP": ip,
                         "MAC": "Не определен",  # MAC будет определен позже
                         "Тип": "Неизвестно",
-                        "Метод": "ICMP"
-                    }
-                    continue
-                
-                # Если не отвечает по ICMP, проверяем порты
-                if self._check_common_ports(ip):
-                    discovered_devices[ip] = {
-                        "IP": ip,
-                        "MAC": "Не определен",
-                        "Тип": "Неизвестно",
-                        "Метод": "PORT"
+                        "Метод": method,
+                        "Статус": "Активно"
                     }
         
         # 4. Если обнаружено слишком мало устройств, сканируем дополнительные адреса
@@ -1272,13 +1322,29 @@ class NetworkMonitor:
                     
                 ip = f"{subnet}.{last_octet}"
                 if ip not in discovered_devices and not self.is_special_ip(ip):
-                    # Проверяем только порты для экономии времени
-                    if self._check_common_ports(ip):
+                    # Проверяем сначала порты, затем при необходимости пинг
+                    port_success = self._check_common_ports(ip)
+                    if port_success:
+                        ping_success = self._ping_ip(ip)
+                        method = "ICMP" if ping_success else "PORT"
+                        
+                        # Сохраняем статус и время последней активности
+                        if ip in self._devices_history:
+                            self._devices_history[ip]["last_active"] = current_time
+                            self._devices_history[ip]["active"] = True
+                        else:
+                            self._devices_history[ip] = {
+                                "last_active": current_time,
+                                "active": True,
+                                "first_seen": current_time
+                            }
+                        
                         discovered_devices[ip] = {
                             "IP": ip,
                             "MAC": "Не определен",
                             "Тип": "Неизвестно",
-                            "Метод": "PORT"
+                            "Метод": method,
+                            "Статус": "Активно"
                         }
         
         # 5. Пингуем все обнаруженные устройства для обновления ARP-таблицы
@@ -1295,6 +1361,13 @@ class NetworkMonitor:
             ip = entry.get("IP")
             if ip in discovered_devices and discovered_devices[ip].get("MAC") == "Не определен":
                 discovered_devices[ip]["MAC"] = entry.get("MAC", "Не определен")
+        
+        # 7. Очистка истории устройств (удаляем устройства, не видимые более 1 часа)
+        cleanup_time = current_time - 3600  # 1 час
+        ips_to_remove = [ip for ip, data in self._devices_history.items() 
+                         if data["last_active"] < cleanup_time]
+        for ip in ips_to_remove:
+            del self._devices_history[ip]
         
         return discovered_devices
 
@@ -1817,9 +1890,13 @@ class NetworkTopologyCanvas(QWidget):
         # Сохраняем текущее состояние художника
         painter.save()
         
-        # Получаем тип устройства и дополнительные атрибуты
+        # Получаем тип устройства, статус и дополнительные атрибуты
         device_type = device.get("Тип", "Неизвестное устройство")
         is_virtual_interface = False  # По умолчанию не виртуальный интерфейс
+        
+        # Проверяем статус устройства (активно/неактивно)
+        device_status = device.get("Статус", "Активно")
+        is_active = device_status == "Активно"
         
         # Проверяем IP адреса виртуальных интерфейсов
         if isinstance(device.get("IP", ""), str):
@@ -1863,6 +1940,14 @@ class NetworkTopologyCanvas(QWidget):
             except Exception as e:
                 # В случае ошибки с градиентом, просто пропускаем его отрисовку
                 print(f"Ошибка при создании градиента: {str(e)}")
+        
+        # Если устройство неактивно, рисуем вокруг него серую полупрозрачную рамку
+        if not is_active:
+            # Создаем эффект "отключения" для неактивных устройств
+            inactive_rect = rect.adjusted(-5, -5, 5, 5)
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(100, 100, 100, 120), 2, Qt.DashLine))
+            painter.drawEllipse(inactive_rect)
         
         # Определяем, какое устройство рисовать
         if device.get("Локальный", False):
@@ -1909,8 +1994,11 @@ class NetworkTopologyCanvas(QWidget):
             else:
                 ip_address = str(device_ip)
         
+        # Добавляем маркеры статуса к тексту IP-адреса
+        if not is_active:
+            ip_address = ip_address + " [!]"
         # Добавляем специальную метку для виртуального интерфейса
-        if is_virtual_interface:
+        elif is_virtual_interface:
             # Рисуем специальную метку рядом с IP-адресом
             ip_address = ip_address + " (V)"
         
@@ -1938,20 +2026,32 @@ class NetworkTopologyCanvas(QWidget):
         text_bg = QRectF(text_rect)
         text_bg.adjust(-5, -2, 5, 2)  # Немного расширяем фон для лучшего вида
         
+        # Выбираем цвет фона в зависимости от статуса устройства
         if is_selected:
             painter.setBrush(QColor(52, 152, 219, 80))
             painter.setPen(QPen(QColor(52, 152, 219), 0.5))
+        elif not is_active:
+            # Серый полупрозрачный фон для неактивных устройств
+            painter.setBrush(QColor(200, 200, 200, 180))
+            painter.setPen(QPen(QColor(150, 150, 150), 0.5))
         else:
+            # Белый фон для активных устройств
             painter.setBrush(QColor(255, 255, 255, 180))
             painter.setPen(QPen(QColor(200, 200, 200), 0.5))
         
         painter.drawRoundedRect(text_bg, 4, 4)
         
-        # Устанавливаем цвет текста
+        # Устанавливаем цвет текста в зависимости от статуса устройства
         if is_selected:
             painter.setPen(QColor(0, 0, 0))
+        elif not is_active:
+            painter.setPen(QColor(100, 100, 100))  # Серый цвет для неактивных устройств
         else:
-            painter.setPen(QColor(30, 30, 30))
+            painter.setPen(QColor(30, 30, 30))  # Почти черный для активных устройств
+        
+        # Если устройство неактивно, применяем эффект полупрозрачности ко всему изображению
+        if not is_active:
+            painter.setOpacity(0.6)  # Устанавливаем полупрозрачность для неактивных устройств
         
         # Рисуем текст
         painter.drawText(text_rect, Qt.AlignCenter, ip_address)
@@ -3452,14 +3552,31 @@ class NetworkTopologyTab(QWidget):
                 subnet = self.monitor.get_subnet(ip)
                 same_subnet = preferred_ip and self.monitor.is_same_subnet(ip, preferred_ip)
                 
+                # Получаем статус устройства (активно/неактивно)
+                status = "Активно"
+                if ip in discovered_devices:
+                    status = discovered_devices[ip].get('Статус', 'Активно')
+                
+                # Проверяем, есть ли информация о статусе в истории устройств
+                if hasattr(self.monitor, '_devices_history') and ip in self.monitor._devices_history:
+                    is_active = self.monitor._devices_history[ip].get('active', True)
+                    if not is_active:
+                        status = "Неактивно"
+                        # Для неактивных устройств добавляем время последней активности в подсказке
+                        last_active_time = self.monitor._devices_history[ip].get('last_active', 0)
+                        if last_active_time > 0:
+                            last_active_str = time.strftime('%H:%M:%S', time.localtime(last_active_time))
+                            device_type += f" (последняя активность: {last_active_str})"
+                
                 unique_devices[ip] = {
-                        'IP': ip,
-                        'MAC': mac,
+                    'IP': ip,
+                    'MAC': mac,
                     'Тип': device_type,
                     'Производитель': vendor if vendor else "Неизвестно",
                     'Локальный': is_local,
                     'Подсеть': subnet,
-                    'СамаяПодсеть': same_subnet
+                    'СамаяПодсеть': same_subnet,
+                    'Статус': status
                 }
             
             # Применяем фильтрацию подсетей, если включена
@@ -3567,10 +3684,10 @@ class NetworkTopologyTab(QWidget):
         # Список виртуальных интерфейсов маршрутизатора
         virtual_interfaces = ["192.168.204.254", "192.168.10.254"]
         
-        # Добавляем колонку для подсети
-        if self.devices_table.columnCount() < 4:
-            self.devices_table.setColumnCount(4)
-            self.devices_table.setHorizontalHeaderLabels(["IP адрес", "MAC адрес", "Тип", "Подсеть"])
+        # Добавляем колонку для подсети и статуса
+        if self.devices_table.columnCount() < 5:
+            self.devices_table.setColumnCount(5)
+            self.devices_table.setHorizontalHeaderLabels(["IP адрес", "MAC адрес", "Тип", "Подсеть", "Статус"])
         
         self.devices_table.setRowCount(len(self.devices))
         
@@ -3620,6 +3737,29 @@ class NetworkTopologyTab(QWidget):
                 subnet_item.setBackground(QColor(255, 248, 225))
                 
             self.devices_table.setItem(row, 3, subnet_item)
+            
+            # Статус устройства
+            status_text = device.get('Статус', 'Активно')
+            status_item = QTableWidgetItem(status_text)
+            
+            # Цветовая кодировка статуса
+            if status_text == 'Активно':
+                # Зеленый для активных устройств
+                status_item.setBackground(QColor(232, 245, 233))
+                status_item.setForeground(QColor(27, 94, 32))
+                status_item.setIcon(QIcon.fromTheme('network-connect', QIcon()))
+            elif status_text == 'Неактивно':
+                # Серый для неактивных устройств
+                status_item.setBackground(QColor(238, 238, 238))
+                status_item.setForeground(QColor(117, 117, 117))
+                status_item.setIcon(QIcon.fromTheme('network-disconnect', QIcon()))
+                status_item.setToolTip("Устройство недавно было в сети, но сейчас не отвечает")
+            else:
+                # Жёлтый для неопределённого статуса
+                status_item.setBackground(QColor(255, 248, 225))
+                status_item.setForeground(QColor(245, 124, 0))
+            
+            self.devices_table.setItem(row, 4, status_item)
         
         # Подгоняем размеры столбцов под содержимое
         self.devices_table.resizeColumnsToContents()
