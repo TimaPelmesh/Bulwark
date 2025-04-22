@@ -7,6 +7,8 @@ import time
 import ipaddress
 import math  # Добавляем импорт модуля math
 import threading  # Добавляем импорт модуля threading
+import os  # Добавляем импорт os для работы с системными командами
+import sys
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel, 
                            QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
                            QPushButton, QComboBox, QSplitter, QApplication,
@@ -17,6 +19,23 @@ from PyQt5.QtGui import (QPainter, QColor, QPen, QBrush, QFont, QPixmap, QPainte
                        QPolygonF, QLinearGradient, QRadialGradient, QIcon)  # Добавляем QIcon
 import logging
 import concurrent.futures
+
+# Перенаправляем stderr в /dev/null (или NUL на Windows) перед импортом Scapy
+# чтобы скрыть предупреждение "No libpcap provider available"
+old_stderr = sys.stderr
+devnull = open(os.devnull, 'w')
+sys.stderr = devnull
+
+# Пытаемся импортировать Scapy, но не выдаем ошибку, если не получится
+try:
+    from scapy.all import ARP, Ether, srp
+    SCAPY_AVAILABLE = True
+except Exception as e:
+    logging.warning(f"Scapy недоступен: {e}")
+    SCAPY_AVAILABLE = False
+
+# Возвращаем stderr обратно
+sys.stderr = old_stderr
 
 
 # Добавляем новый класс AnimatedProgressBar
@@ -788,6 +807,7 @@ class NetworkMonitor:
     def scan_network(self, start_subnet_index=0, start_batch=1):
         """
         Активное сканирование сети для обнаружения всех устройств
+        Использует улучшенный универсальный алгоритм сканирования
         :param start_subnet_index: Индекс для начала сканирования при возобновлении
         :param start_batch: Номер батча для начала сканирования
         :return: Словарь с обнаруженными устройствами и флагом завершения
@@ -801,21 +821,25 @@ class NetworkMonitor:
             completed = True  # Флаг завершения сканирования
             
             # Получаем все подсети для сканирования
-            for interface in interfaces:
+            for interface_name, interface in interfaces.items():
                 # Пропускаем неактивные интерфейсы
-                if not interface['Активен']:
-                        continue
-                        
+                if not interface.get('Активен', False):
+                    continue
+                    
                 # Пропускаем VPN и виртуальные интерфейсы
-                if self._is_virtual_adapter(interface['Имя'], interface.get('Описание', '')):
+                if self._is_virtual_adapter(interface_name, interface.get('Описание', '')):
                     continue
                 
                 # Определяем подсеть для каждого интерфейса
-                ip = interface['IP']
-                if ip and not self.is_special_ip(ip):
-                    subnet = self.get_subnet(ip)
-                    if subnet and subnet not in subnets:
-                        subnets.append(subnet)
+                ip_list = interface.get('IP', [])
+                if isinstance(ip_list, str):
+                    ip_list = [ip_list]
+                
+                for ip in ip_list:
+                    if ip and not self.is_special_ip(ip):
+                        subnet = self.get_subnet(ip)
+                        if subnet and subnet not in subnets:
+                            subnets.append(subnet)
             
             # Если подсетей не найдено, используем стандартную
             if not subnets:
@@ -825,7 +849,7 @@ class NetworkMonitor:
             max_scan_time = 120
             start_time = time.time()
             
-            # Перебираем все подсети
+            # Для каждой подсети запускаем сканирование
             for subnet_index, subnet in enumerate(subnets[start_subnet_index:], start_subnet_index):
                 # Пропускаем, если время сканирования превышено
                 current_time = time.time()
@@ -833,69 +857,21 @@ class NetworkMonitor:
                     completed = False
                     break
                 
-                # Разбиваем диапазон IP-адресов на пакеты для более быстрого сканирования
-                ip_batches = []
-                batch_size = 30  # Размер пакета IP-адресов
+                # Используем универсальный алгоритм сканирования
+                subnet_devices = self._scan_network_alternative(subnet)
                 
-                # Создаем пакеты по batch_size IP-адресов каждый
-                network = ipaddress.ip_network(subnet, strict=False)
-                hosts = list(network.hosts())
-                
-                for i in range(0, len(hosts), batch_size):
-                    batch = hosts[i:i+batch_size]
-                    ip_batches.append(batch)
-                
-                # Сканируем каждый пакет IP-адресов
-                for batch_index, batch in enumerate(ip_batches[start_batch-1:], start_batch):
-                    # Проверяем, не истекло ли время сканирования
-                    current_time = time.time()
-                    if current_time - start_time > max_scan_time:
-                        completed = False
-                        break
-                    
-                    # Запускаем асинхронное сканирование пакета IP-адресов
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                        future_to_ip = {executor.submit(self._ping_ip, str(ip)): str(ip) for ip in batch}
-                        
-                        for future in concurrent.futures.as_completed(future_to_ip):
-                            ip = future_to_ip[future]
-                            try:
-                                is_alive = future.result()
-                                if is_alive:
-                                    # Если устройство отвечает на пинг, добавляем его в список обнаруженных
-                                    discovered_devices[ip] = {
-                                        "IP": ip,
-                                        "MAC": "",
-                                        "Интерфейс": "",
-                                        "Тип": "Неизвестно"
-                                    }
-                            except Exception:
-                                # Игнорируем ошибки отдельных пингов
-                                pass
-                    
-                    # Обновляем ARP таблицу после каждого батча
-                    arp_table = self.get_arp_table()
-                    
-                    # Обновляем MAC-адреса и типы у найденных устройств
-                    for ip, device in discovered_devices.items():
-                        for entry in arp_table:
-                            if entry["IP"] == ip:
-                                device["MAC"] = entry["MAC"]
-                                device["Интерфейс"] = entry["Интерфейс"]
-                                device["Тип"] = self._determine_device_type(ip, entry["MAC"])
-                
-                # Если превышено максимальное время, прерываем цикл по подсетям
-                if not completed:
-                    break
+                # Объединяем результаты
+                for ip, device in subnet_devices.items():
+                    if ip not in discovered_devices:
+                        discovered_devices[ip] = device
             
             # Если сканирование не было завершено полностью
             if not completed:
-                # Запоминаем индекс последней сканированной подсети и батча для возможности продолжения
+                # Запоминаем индекс последней сканированной подсети для возможности продолжения
                 return {
                     "devices": discovered_devices,
                     "completed": completed,
-                    "subnet_index": subnet_index,
-                    "batch_index": batch_index
+                    "subnet_index": subnet_index
                 }
             
             return {
@@ -1196,10 +1172,10 @@ class NetworkMonitor:
         
         return False
 
-    def _scan_network_alternative(self, subnet=None, max_devices=20):
+    def _scan_network_alternative(self, subnet=None, max_devices=30):
         """
-        Альтернативный метод сканирования сети, когда ICMP блокируется.
-        Использует комбинацию методов обнаружения и проверяет актуальность устройств.
+        Улучшенный универсальный алгоритм сканирования сети, объединяющий различные методы
+        обнаружения устройств для работы в домашних и корпоративных сетях.
         
         Args:
             subnet (str): Подсеть для сканирования (если None, используется текущая подсеть)
@@ -1215,118 +1191,40 @@ class NetworkMonitor:
         if not hasattr(self, '_devices_history'):
             self._devices_history = {}
         
-        # 1. Сначала собираем устройства из ARP-таблицы
-        arp_entries = self.get_arp_table()
-        for entry in arp_entries:
-            ip = entry.get("IP")
-            if ip and not self.is_special_ip(ip):
-                mac = entry.get("MAC", "Не определен")
-                if not self.is_special_mac(mac):
-                    # Проверяем, активно ли устройство в данный момент
-                    is_active = False
-                    ping_success = self._ping_ip(ip)
-                    port_success = self._check_common_ports(ip)
-                    
-                    # Устройство считается активным, если оно отвечает на ping или на проверку портов
-                    if ping_success or port_success:
-                        is_active = True
-                        
-                    # Сохраняем статус и время последней активности
-                    if ip in self._devices_history:
-                        # Обновляем существующую запись
-                        if is_active:
-                            self._devices_history[ip]["last_active"] = current_time
-                            self._devices_history[ip]["active"] = True
-                        else:
-                            # Если устройство не активно сейчас, но было активно недавно (в течение 3 минут),
-                            # оставляем его в списке, но помечаем как неактивное
-                            if current_time - self._devices_history[ip]["last_active"] < 180:  # 3 минуты
-                                is_active = True  # Считаем его всё ещё присутствующим, но неактивным
-                                self._devices_history[ip]["active"] = False
-                            else:
-                                # Если устройство было неактивно больше 3 минут, удаляем его
-                                continue
-                    else:
-                        # Создаем новую запись в истории
-                        self._devices_history[ip] = {
-                            "last_active": current_time if is_active else 0,
-                            "active": is_active,
-                            "first_seen": current_time
-                        }
-                    
-                    # Если устройство активно или было активно недавно, добавляем его в список
-                    if is_active:
-                        active_status = "Активно" if self._devices_history[ip]["active"] else "Неактивно"
-                        discovered_devices[ip] = {
-                            "IP": ip,
-                            "MAC": mac,
-                            "Тип": "Неизвестно",  # Тип будет определен позже
-                            "Метод": "ARP",
-                            "Статус": active_status
-                        }
-        
-        # 2. Получаем текущую подсеть
+        # 1. Получаем нужную подсеть для сканирования
         if not subnet:
-            if hasattr(self, 'local_ip') and self.local_ip:
+            if hasattr(self, 'local_ip') and self.local_ip and self.local_ip != "Не определен":
                 subnet = self.get_subnet(self.local_ip)
             else:
                 # Если не можем определить подсеть, используем стандартную
-                return discovered_devices
+                subnet = "192.168.1.0/24"
         
-        # Удаляем ".0" из конца подсети, если она есть
-        if subnet.endswith('.0'):
-            subnet = subnet[:-2]
+        # Удаляем ".0" из конца подсети, если она есть и добавляем "/24"
+        if '/' not in subnet:
+            base_ip = subnet.split('/')[0].rsplit('.', 1)[0]
+            subnet = f"{base_ip}.0/24"
+        else:
+            base_ip = subnet.split('/')[0].rsplit('.', 1)[0]
         
-        # 3. Пытаемся просканировать общие порты для устройств в подсети
-        # Сначала пробуем наиболее вероятные адреса
-        common_last_octets = [1, 2, 3, 254, 100, 101, 10, 20, 30, 40, 50, 60, 70, 80, 90, 110, 120, 130, 140, 150]
-        
-        for last_octet in common_last_octets:
-            ip = f"{subnet}.{last_octet}"
-            if ip not in discovered_devices and not self.is_special_ip(ip):
-                ping_success = self._ping_ip(ip)
-                port_success = self._check_common_ports(ip)
+        # 2. Пытаемся использовать Scapy, если она доступна
+        if SCAPY_AVAILABLE:
+            try:
+                # Создаем ARP-запрос для всей подсети
+                arp_request = ARP(pdst=subnet)
+                broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
+                arp_request_broadcast = broadcast / arp_request
                 
-                # Устройство считается активным, если оно отвечает на ping или на проверку портов
-                if ping_success or port_success:
-                    method = "ICMP" if ping_success else "PORT"
+                # Отправляем запрос с небольшим таймаутом
+                answered, _ = srp(arp_request_broadcast, timeout=2, verbose=False)
+                
+                # Обрабатываем ответы
+                for sent, received in answered:
+                    ip = received.psrc
+                    mac = received.hwsrc
                     
-                    # Сохраняем статус и время последней активности
-                    if ip in self._devices_history:
-                        self._devices_history[ip]["last_active"] = current_time
-                        self._devices_history[ip]["active"] = True
-                    else:
-                        self._devices_history[ip] = {
-                            "last_active": current_time,
-                            "active": True,
-                            "first_seen": current_time
-                        }
-                    
-                    discovered_devices[ip] = {
-                        "IP": ip,
-                        "MAC": "Не определен",  # MAC будет определен позже
-                        "Тип": "Неизвестно",
-                        "Метод": method,
-                        "Статус": "Активно"
-                    }
-        
-        # 4. Если обнаружено слишком мало устройств, сканируем дополнительные адреса
-        if len(discovered_devices) < max_devices:
-            # Ограничиваем диапазон сканирования
-            max_additional = max_devices - len(discovered_devices)
-            step = max(1, 254 // max_additional)
-            
-            for last_octet in range(1, 255, step):
-                if len(discovered_devices) >= max_devices:
-                    break
-                    
-                ip = f"{subnet}.{last_octet}"
-                if ip not in discovered_devices and not self.is_special_ip(ip):
-                    # Проверяем сначала порты, затем при необходимости пинг
-                    port_success = self._check_common_ports(ip)
-                    if port_success:
-                        ping_success = self._ping_ip(ip)
-                        method = "ICMP" if ping_success else "PORT"
+                    if not self.is_special_ip(ip) and not self.is_special_mac(mac):
+                        # Проверяем, активно ли устройство
+                        is_active = True
                         
                         # Сохраняем статус и время последней активности
                         if ip in self._devices_history:
@@ -1339,15 +1237,207 @@ class NetworkMonitor:
                                 "first_seen": current_time
                             }
                         
+                        # Определяем тип устройства
+                        device_type = self._determine_device_type(ip, mac)
+                        
                         discovered_devices[ip] = {
                             "IP": ip,
-                            "MAC": "Не определен",
-                            "Тип": "Неизвестно",
-                            "Метод": method,
+                            "MAC": mac,
+                            "Тип": device_type,
+                            "Метод": "Scapy",
                             "Статус": "Активно"
                         }
+                
+                # Если Scapy нашел устройства, можно вернуть результат
+                if discovered_devices:
+                    logging.info(f"Scapy успешно обнаружил {len(discovered_devices)} устройств")
+                    # Но продолжим сканирование другими методами для повышения надежности
+            except Exception as e:
+                logging.error(f"Ошибка при сканировании через Scapy: {e}")
         
-        # 5. Пингуем все обнаруженные устройства для обновления ARP-таблицы
+        # 3. Собираем устройства из ARP-таблицы (этот метод работает даже когда пинги заблокированы)
+        arp_entries = self.get_arp_table()
+        for entry in arp_entries:
+            ip = entry.get("IP")
+            if ip and not self.is_special_ip(ip):
+                mac = entry.get("MAC", "Не определен")
+                if not self.is_special_mac(mac):
+                    # Если устройство не было обнаружено через Scapy
+                    if ip not in discovered_devices:
+                        # Проверяем, активно ли устройство - в корпоративных сетях и пинг, и порты могут быть заблокированы
+                        is_active = True  # Предполагаем, что устройство активно, если оно в ARP-таблице
+                        
+                        # Сохраняем статус и время последней активности
+                        if ip in self._devices_history:
+                            # Обновляем существующую запись
+                            if is_active:
+                                self._devices_history[ip]["last_active"] = current_time
+                                self._devices_history[ip]["active"] = True
+                        else:
+                            # Создаем новую запись в истории
+                            self._devices_history[ip] = {
+                                "last_active": current_time if is_active else 0,
+                                "active": is_active,
+                                "first_seen": current_time
+                            }
+                        
+                        # Если устройство активно или было активно недавно, добавляем его в список
+                        if is_active:
+                            active_status = "Активно" if self._devices_history[ip]["active"] else "Неактивно"
+                            
+                            # Определяем тип устройства
+                            device_type = self._determine_device_type(ip, mac)
+                            
+                            discovered_devices[ip] = {
+                                "IP": ip,
+                                "MAC": mac,
+                                "Тип": device_type,
+                                "Метод": "ARP",
+                                "Статус": active_status
+                            }
+        
+        # 4. Если обнаружено мало устройств, используем параллельное сканирование (как в module_from_seti.py)
+        if len(discovered_devices) < max_devices // 2:
+            import threading
+            
+            # Список потоков
+            threads = []
+            # Блокировка для безопасного доступа к общим данным
+            lock = threading.Lock()
+            
+            # Функция для проверки одного IP-адреса
+            def check_ip(ip):
+                try:
+                    if ip not in discovered_devices and not self.is_special_ip(ip):
+                        # Используем ping для проверки доступности
+                        if os.name == 'nt':  # Windows
+                            ping_cmd = ['ping', '-n', '1', '-w', '100', ip]
+                        else:  # Linux/Mac
+                            ping_cmd = ['ping', '-c', '1', '-W', '1', ip]
+                        
+                        # Запускаем ping
+                        result = subprocess.run(ping_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        ping_success = (result.returncode == 0)
+                        
+                        # Если ping успешен, получаем MAC из ARP-таблицы
+                        if ping_success:
+                            # Пингуем еще раз, чтобы обновить ARP-таблицу
+                            subprocess.run(ping_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            
+                            # Получаем MAC-адрес из ARP-таблицы
+                            mac = "Не определен"
+                            for entry in self.get_arp_table():
+                                if entry["IP"] == ip:
+                                    mac = entry["MAC"]
+                                    break
+                            
+                            # Безопасно добавляем устройство в словарь
+                            with lock:
+                                if ip not in discovered_devices and not self.is_special_mac(mac):
+                                    # Обновляем историю устройств
+                                    if ip in self._devices_history:
+                                        self._devices_history[ip]["last_active"] = current_time
+                                        self._devices_history[ip]["active"] = True
+                                    else:
+                                        self._devices_history[ip] = {
+                                            "last_active": current_time,
+                                            "active": True,
+                                            "first_seen": current_time
+                                        }
+                                    
+                                    # Определяем тип устройства
+                                    device_type = self._determine_device_type(ip, mac)
+                                    
+                                    discovered_devices[ip] = {
+                                        "IP": ip,
+                                        "MAC": mac,
+                                        "Тип": device_type,
+                                        "Метод": "PING",
+                                        "Статус": "Активно"
+                                    }
+                except Exception:
+                    pass
+            
+            # Сначала сканируем наиболее вероятные IP-адреса
+            common_last_octets = [1, 2, 3, 254, 100, 101, 10, 20, 30, 40, 50, 60, 70, 80, 90, 110, 120, 130, 140, 150]
+            for last_octet in common_last_octets:
+                ip = f"{base_ip}.{last_octet}"
+                thread = threading.Thread(target=check_ip, args=(ip,))
+                thread.start()
+                threads.append(thread)
+            
+            # Ожидаем завершения потоков
+            for thread in threads:
+                thread.join()
+            
+            # Если все еще мало устройств, сканируем остальные IP-адреса с шагом
+            if len(discovered_devices) < max_devices:
+                threads = []
+                step = max(1, 254 // (max_devices * 2))  # Увеличиваем шаг для сканирования меньшего числа IP
+                
+                for last_octet in range(1, 255, step):
+                    # Пропускаем уже проверенные IP
+                    if last_octet in common_last_octets:
+                        continue
+                    
+                    ip = f"{base_ip}.{last_octet}"
+                    thread = threading.Thread(target=check_ip, args=(ip,))
+                    thread.start()
+                    threads.append(thread)
+                    
+                    # Ограничиваем количество одновременных потоков
+                    if len(threads) >= 20:
+                        for t in threads:
+                            t.join()
+                        threads = []
+                
+                # Ожидаем завершения оставшихся потоков
+                for thread in threads:
+                    thread.join()
+        
+        # 5. Проверяем порты для устройств, которые не ответили на ping
+        if len(discovered_devices) < max_devices:
+            # Проверяем порты у IP-адресов с шагом
+            step = max(1, 254 // max_devices)
+            for last_octet in range(1, 255, step):
+                ip = f"{base_ip}.{last_octet}"
+                if ip not in discovered_devices and not self.is_special_ip(ip):
+                    # Проверяем порты
+                    if self._check_common_ports(ip):
+                        # Пытаемся пинговать для обновления ARP-таблицы
+                        self._ping_ip(ip)
+                        
+                        # Ищем MAC-адрес
+                        mac = "Не определен"
+                        for entry in self.get_arp_table():
+                            if entry["IP"] == ip:
+                                mac = entry["MAC"]
+                                break
+                        
+                        if not self.is_special_mac(mac):
+                            # Обновляем историю устройств
+                            if ip in self._devices_history:
+                                self._devices_history[ip]["last_active"] = current_time
+                                self._devices_history[ip]["active"] = True
+                            else:
+                                self._devices_history[ip] = {
+                                    "last_active": current_time,
+                                    "active": True,
+                                    "first_seen": current_time
+                                }
+                            
+                            # Определяем тип устройства
+                            device_type = self._determine_device_type(ip, mac)
+                            
+                            discovered_devices[ip] = {
+                                "IP": ip,
+                                "MAC": mac,
+                                "Тип": device_type,
+                                "Метод": "PORT",
+                                "Статус": "Активно"
+                            }
+        
+        # 6. Пингуем все обнаруженные устройства для обновления ARP-таблицы
         for ip in list(discovered_devices.keys()):
             try:
                 subprocess.call(f"ping -n 1 {ip}", shell=True, 
@@ -1355,15 +1445,17 @@ class NetworkMonitor:
             except:
                 pass
         
-        # 6. Обновляем MAC-адреса для всех обнаруженных устройств
+        # 7. Обновляем MAC-адреса для всех обнаруженных устройств
         updated_arp = self.get_arp_table()
         for entry in updated_arp:
             ip = entry.get("IP")
             if ip in discovered_devices and discovered_devices[ip].get("MAC") == "Не определен":
                 discovered_devices[ip]["MAC"] = entry.get("MAC", "Не определен")
+                # Обновляем тип устройства на основе MAC
+                discovered_devices[ip]["Тип"] = self._determine_device_type(ip, entry.get("MAC"))
         
-        # 7. Очистка истории устройств (удаляем устройства, не видимые более 1 часа)
-        cleanup_time = current_time - 3600  # 1 час
+        # 8. Очистка истории устройств (удаляем устройства, не видимые более 2 часов)
+        cleanup_time = current_time - 7200  # 2 часа
         ips_to_remove = [ip for ip, data in self._devices_history.items() 
                          if data["last_active"] < cleanup_time]
         for ip in ips_to_remove:
@@ -1427,6 +1519,9 @@ class NetworkInfoTab(QWidget):
         self.interfaces_table.setColumnWidth(1, 120)
         self.interfaces_table.setColumnWidth(2, 120)
         self.interfaces_table.setColumnWidth(3, 150)
+        # Делаем таблицу нередактируемой
+        self.interfaces_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.interfaces_table.setSelectionBehavior(QTableWidget.SelectRows)
         
         # Применяем стили к таблицам
         table_style = """
@@ -1481,6 +1576,9 @@ class NetworkInfoTab(QWidget):
             "Интерфейс", "Отправлено (МБ)", "Получено (МБ)", 
             "Отправлено пакетов", "Получено пакетов"
         ])
+        # Делаем таблицу нередактируемой
+        self.stats_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.stats_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.stats_table.setStyleSheet(table_style)
         
         stats_layout.addWidget(self.stats_table)
@@ -1608,6 +1706,9 @@ class ARPTableTab(QWidget):
         
         # Устанавливаем свойства таблицы
         self.arp_table.setAlternatingRowColors(True)
+        # Делаем таблицу нередактируемой
+        self.arp_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.arp_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.arp_table.setStyleSheet("""
             QTableWidget {
                 background-color: white;
@@ -1999,32 +2100,52 @@ class NetworkTopologyCanvas(QWidget):
             ip_address = ip_address + " [!]"
         # Добавляем специальную метку для виртуального интерфейса
         elif is_virtual_interface:
-            # Рисуем специальную метку рядом с IP-адресом
-            ip_address = ip_address + " (V)"
+            # Для расчета ширины будем использовать IP без маркера, а для отображения - с маркером
+            display_ip = ip_address + " (V)"
+        else:
+            display_ip = ip_address
         
-        # Вычисляем примерную ширину текста
+        # Вычисляем примерную ширину текста (для виртуальных интерфейсов без маркера)
         font_metrics = painter.fontMetrics()
-        text_width = font_metrics.width(ip_address)
+        text_width = font_metrics.width(ip_address)  # Ширина без (V) для виртуальных интерфейсов
         
-        # Рисуем текст с IP-адресом под устройством с динамически адаптированной шириной
-        padding = 20  # Увеличенный отступ с каждой стороны для предотвращения обрезания
+        # Определяем параметры прямоугольника в зависимости от типа устройства
+        if is_virtual_interface:
+            # Для виртуальных интерфейсов делаем минимальные отступы
+            padding = 0  # Нулевой отступ для виртуальных интерфейсов
+            rect_height = 12  # Ещё меньшая высота
+            adjust_x = 0  # Нет расширения по горизонтали
+            adjust_y = 0  # Нет расширения по вертикали
+            font_size = 6  # Самый мелкий шрифт
+            corner_radius = 2  # Меньшее закругление углов
+        else:
+            display_ip = ip_address
+            # Для остальных устройств
+            padding = 5  # Стандартный минимальный отступ
+            rect_height = 16  # Стандартная высота
+            adjust_x = 2  # Стандартное расширение по горизонтали
+            adjust_y = 1  # Стандартное расширение по вертикали
+            font_size = 7  # Стандартный размер шрифта
+            corner_radius = 4  # Стандартное закругление углов
+        
+        # Рисуем текст с IP-адресом под устройством
         text_rect = QRectF(
             rect.center().x() - text_width/2 - padding, 
             rect.bottom() + 5, 
             text_width + padding*2,  # Размер рамки основан на ширине текста с запасом
-            24  # Увеличенная высота для лучшего отображения
+            rect_height  # Высота для отображения
         )
         
         # Устанавливаем стиль текста
         font = painter.font()
-        font.setPointSize(8)
+        font.setPointSize(font_size)
         if is_selected:
             font.setBold(True)
         painter.setFont(font)
         
         # Рисуем цветной фон для текста с более точным размером
         text_bg = QRectF(text_rect)
-        text_bg.adjust(-5, -2, 5, 2)  # Немного расширяем фон для лучшего вида
+        text_bg.adjust(-adjust_x, -adjust_y, adjust_x, adjust_y)  # Расширение фона
         
         # Выбираем цвет фона в зависимости от статуса устройства
         if is_selected:
@@ -2039,7 +2160,7 @@ class NetworkTopologyCanvas(QWidget):
             painter.setBrush(QColor(255, 255, 255, 180))
             painter.setPen(QPen(QColor(200, 200, 200), 0.5))
         
-        painter.drawRoundedRect(text_bg, 4, 4)
+        painter.drawRoundedRect(text_bg, corner_radius, corner_radius)
         
         # Устанавливаем цвет текста в зависимости от статуса устройства
         if is_selected:
@@ -2054,7 +2175,7 @@ class NetworkTopologyCanvas(QWidget):
             painter.setOpacity(0.6)  # Устанавливаем полупрозрачность для неактивных устройств
         
         # Рисуем текст
-        painter.drawText(text_rect, Qt.AlignCenter, ip_address)
+        painter.drawText(text_rect, Qt.AlignCenter, display_ip)
         
         # Восстанавливаем состояние художника
         painter.restore()
@@ -3256,6 +3377,9 @@ class NetworkTopologyTab(QWidget):
             return
             
         self.network_info.setText("Сканирование сети... (может занять до минуты)")
+        
+        # Сбрасываем прогресс-бар перед началом сканирования
+        self.scan_progress.reset()
         self.scan_progress.setVisible(True)
         self.is_scanning = True
         
@@ -3301,8 +3425,15 @@ class NetworkTopologyTab(QWidget):
             # Останавливаем таймер обновления прогресса
             self.scan_timer.stop()
             
-            # Скрываем прогресс-индикатор через 0.5 секунды после завершения
-            QTimer.singleShot(500, lambda: self.scan_progress.setVisible(False))
+            # Скрываем прогресс-индикатор и сбрасываем его через 0.5 секунды после завершения
+            QTimer.singleShot(500, lambda: self._reset_progress_bar())
+    
+    def _reset_progress_bar(self):
+        """
+        Сбрасывает и скрывает прогресс-бар
+        """
+        self.scan_progress.reset()
+        self.scan_progress.setVisible(False)
     
     def _scan_network_thread(self):
         """
@@ -3962,6 +4093,9 @@ class TraceRouteTab(QWidget):
         
         # Устанавливаем свойства таблицы
         self.trace_table.setAlternatingRowColors(True)
+        # Делаем таблицу нередактируемой
+        self.trace_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.trace_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.trace_table.setStyleSheet("""
             QTableWidget {
                 background-color: white;
