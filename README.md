@@ -94,7 +94,7 @@ network-monitor/
 
 ###Скачать программу exe
 
-[Скачать программу](https://drive.google.com/file/d/1Cacp3MpIfThgR3jimmgR8FFcxVqKSQPy/view?usp=sharing)
+[Скачать программу](https://drive.google.com/file/d/1yz-xaqa5bxOMn0HcwBlbk7XUruCf1nks/view?usp=sharing)
 
 
-ссылочка на диск - https://drive.google.com/file/d/1Cacp3MpIfThgR3jimmgR8FFcxVqKSQPy/view?usp=sharing
+Ссылка на диск - https://drive.google.com/file/d/1yz-xaqa5bxOMn0HcwBlbk7XUruCf1nks/view?usp=sharing
